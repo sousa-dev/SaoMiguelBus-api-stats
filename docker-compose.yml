@@ -17,4 +17,4 @@ services:
     volumes:
       - ./config/nginx/conf.d:/etc/nginx/conf.d:ro
     ports:
-      - 80:80
+      - 5555:5555
