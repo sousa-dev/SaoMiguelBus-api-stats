@@ -1,7 +1,10 @@
 import collections
 from difflib import SequenceMatcher
+
+import requests
 from django.shortcuts import render
 from django.utils import timezone
+from django.db.models import QuerySet
 from numpy import full
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -125,23 +128,60 @@ def add_stat_v1(request):
 def get_group_stats_v1(request):
     if request.method == "GET":
         try:
+            groups = request.GET.get('group', '')
+            if groups == '':
+                return Response({'error': 'Group is required'})    
+            start_time = request.GET.get('start_time', datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp() - timedelta(days=7).total_seconds())
+            end_time = request.GET.get('end_time', datetime.now().replace(hour=23, minute=59, second=59, microsecond=0).timestamp() - timedelta(days=1).total_seconds())
+            erase = False
+            if erase:
+                print("Erasing Groups Database...")
+                Group.objects.all().delete()
+                all_groups = all_states = requests.get('https://api.saomiguelbus.com/api/v1/groups')
+                for group in all_groups.json():
+                    gr = Group()
+                    gr.name = group['name'].lower()
+                    gr.stops = ",".join(group['stops'])
+                    gr.save()
+                print("Done! Added updates groups")     
+                print("Erasing Stats Database...")
+                # clear database
+                Stat.objects.all().delete()
+                # get all states from external api
+                all_states = requests.get('https://api.saomiguelbus.com/api/v1/stats', params={'start_time': start_time, 'end_time': end_time})
+                # Populate DB with the stats
+                print("Adding new stats to the database...")
+                for state in all_states.json():
+                    stat = Stat()
+                    stat.request = state['request']
+                    stat.origin = get_most_similar_stop(state['origin']) if state['origin'] != 'NA' else state['origin']
+                    stat.destination = get_most_similar_stop(state['destination']) if state['destination'] != 'NA' else state['destination']
+                    stat.type_of_day = state['type_of_day']
+                    stat.time = state['time']
+                    stat.platform = state['platform']
+                    stat.language = state['language']
+                    stat.timestamp = datetime.strptime(state['timestamp'], "%Y-%m-%dT%H:%M:%S.%fZ")
+                    stat.save()
+                print("Done! Added " + str(len(all_states.json())) + " stats to the database...")
+
             response = {}
             detailed_impressions = []            
             platform = request.GET.get('platform', 'all')
             language = request.GET.get('language', 'all')
-            groups = request.GET.get('group', '')
-            if groups == '':
-                return Response({'error': 'Group is required'})
-            start_time = request.GET.get('start_time', datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp() - timedelta(days=7).total_seconds())
-            end_time = request.GET.get('end_time', datetime.now().replace(hour=23, minute=59, second=59, microsecond=0).timestamp() - timedelta(days=1).total_seconds())
+    
             start_time = timezone.make_aware(datetime.fromtimestamp(int(start_time)), timezone.get_current_timezone())
             end_time = timezone.make_aware(datetime.fromtimestamp(int(end_time)), timezone.get_current_timezone())
-
+            
             response['start_time'] = start_time
             response['end_time'] = end_time
 
             stats = Stat.objects.all()
+            print("start")
+            print(len(stats)) 
+            print((start_time, end_time))
             stats = stats.filter(timestamp__range=(start_time, end_time))
+            print("after time filter")
+            print(len(stats)) 
             stats = stats.filter(language=language) if language != 'all' else stats
             if platform != 'all':
                 if platform.find(',') != -1:
@@ -152,6 +192,8 @@ def get_group_stats_v1(request):
                 else:
                     stats = stats.filter(platform=platform)
 
+            print("before home page")
+            print(len(stats)) 
             search_stops = []
             home_page_impressions = 0
             #home_page_detailed_impressions = []
@@ -172,15 +214,23 @@ def get_group_stats_v1(request):
             response['search_stops'] = search_stops
 
             # Find stats that have at least one of the stops at destination     
-            # TODO: Fix this part           
-            for stat in stats:
-                if stat.destination == 'NA':
-                    stats = stats.exclude(id=stat.id)
-                    continue
-                if stat.destination in search_stops or get_most_similar_stop(stat.destination) in search_stops:
-                    continue
-                else:
-                    stats = stats.exclude(id=stat.id)
+            # TODO: Fix this part     
+            print("Before")
+            print(len(stats))      
+            # for stat in stats:
+            #     if stat.destination == 'NA':
+            #         stats = stats.exclude(id=stat.id)
+            #         continue
+            #     if stat.destination in search_stops or get_most_similar_stop(stat.destination) in search_stops:
+            #         continue
+            #     else:
+            #         stats = stats.exclude(id=stat.id)
+            new_stats = Stat.objects.none()
+            for stop in search_stops:
+                new_stats |= stats.filter(destination__icontains=stop)
+            stats = new_stats
+            print("after")
+            print(len(stats))
 
             response['total_impressions'] = len(stats) + home_page_impressions
             response['home_page_impressions'] = home_page_impressions

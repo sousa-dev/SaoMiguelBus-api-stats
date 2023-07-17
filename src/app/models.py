@@ -44,7 +44,7 @@ class Stat(models.Model):
     time = models.CharField(max_length=100)
     platform = models.CharField(max_length=100)
     language = models.CharField(max_length=100)
-    timestamp = models.DateTimeField(auto_now_add=True)
+    timestamp = models.DateTimeField()
     def __str__(self):
         return f"{self.request} | {self.origin} -> {self.destination} | {self.type_of_day}"
     
