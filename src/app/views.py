@@ -133,7 +133,9 @@ def get_group_stats_v1(request):
                 return Response({'error': 'Group is required'})    
             start_time = request.GET.get('start_time', datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp() - timedelta(days=7).total_seconds())
             end_time = request.GET.get('end_time', datetime.now().replace(hour=23, minute=59, second=59, microsecond=0).timestamp() - timedelta(days=1).total_seconds())
-            erase = True
+            start_time = str(start_time).split('.')[0]
+            end_time = str(end_time).split('.')[0]
+            erase = False
             if erase:
                 print("Erasing Groups Database...")
                 Group.objects.all().delete()
